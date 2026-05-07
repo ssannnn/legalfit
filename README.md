@@ -24,7 +24,7 @@ MVP workspace for the Anden-first legalfit intake and Lead Inbox.
 
 4. Apply Supabase migrations from `supabase/migrations/`.
 
-5. Seed at least one active operator in `public.anden_operators` with the email used for Supabase Auth magic links.
+5. Seed local/demo data from `supabase/seed.sql`, or manually seed at least one active operator in `public.anden_operators` with the email used for Supabase Auth magic links.
 
 6. Run the app:
 
