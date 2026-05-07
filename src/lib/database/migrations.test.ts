@@ -15,6 +15,10 @@ const voiceMigrationPath = join(
   process.cwd(),
   "supabase/migrations/20260507212000_add_voice_transcription_fields.sql"
 );
+const retentionMigrationPath = join(
+  process.cwd(),
+  "supabase/migrations/20260507214000_add_retention_duplicate_metrics.sql"
+);
 
 describe("lead case schema migration", () => {
   const sql = readFileSync(schemaMigrationPath, "utf8");
@@ -81,5 +85,19 @@ describe("voice transcription migration", () => {
     expect(sql).toContain("transcription_status");
     expect(sql).toContain("original_audio_retained");
     expect(sql).toContain("audio_retained_until");
+  });
+});
+
+describe("retention and duplicate migration", () => {
+  const sql = readFileSync(retentionMigrationPath, "utf8");
+
+  it("adds retention, completion and duplicate-detection metadata", () => {
+    expect(sql).toContain("retention_delete_after");
+    expect(sql).toContain("completed_at");
+    expect(sql).toContain("dossier_generated_at");
+    expect(sql).toContain("lead_cases_duplicate_email_idx");
+    expect(sql).toContain("lead_cases_duplicate_telegram_user_idx");
+    expect(sql).toContain("lead_cases_duplicate_cuit_idx");
+    expect(sql).toContain("lead_cases_duplicate_company_idx");
   });
 });

@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createHandoffPlan, type HandoffPlan } from "../../../../lib/handoff/handoff";
 import { sendNewLeadNotification } from "../../../../lib/notifications/email";
+import {
+  computeIntakeExpiresAt,
+  computeRetentionDeleteAfter,
+  detectDuplicateSignals
+} from "../../../../lib/operations/retention";
 import type { ReadinessInput } from "../../../../lib/routing/readiness";
 import { handleTextIntake, type IntakeSessionSnapshot } from "../../../../lib/telegram/intake";
 import {
@@ -84,7 +89,7 @@ function leadCaseUpdateFromResult(
 }
 
 function leadCaseUpdateFromHandoffPlan(plan: HandoffPlan) {
-  return {
+  const update: Record<string, unknown> = {
     lifecycle_state: plan.leadCasePatch.lifecycleState,
     commercial_state: plan.leadCasePatch.commercialState,
     next_action: plan.leadCasePatch.nextAction,
@@ -98,6 +103,66 @@ function leadCaseUpdateFromHandoffPlan(plan: HandoffPlan) {
     contact_consent: plan.leadCasePatch.contactConsent,
     last_activity_at: new Date().toISOString()
   };
+
+  if (plan.dossier) {
+    update.completed_at = plan.dossier.record.generatedAt;
+    update.dossier_generated_at = plan.dossier.record.generatedAt;
+    update.retention_delete_after = computeRetentionDeleteAfter(
+      plan.dossier.record.generatedAt
+    );
+  }
+
+  return update;
+}
+
+async function duplicatePatchForPlan({
+  supabase,
+  plan
+}: {
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  plan: HandoffPlan;
+}) {
+  const [{ data: current }, { data: existingCases }] = await Promise.all([
+    supabase
+      .from("lead_cases")
+      .select("telegram_user_id, cuit")
+      .eq("id", plan.leadCaseId)
+      .maybeSingle(),
+    supabase
+      .from("lead_cases")
+      .select("id, company_name, contact_email, telegram_user_id, cuit")
+      .neq("id", plan.leadCaseId)
+  ]);
+  const profileRecord = plan.profile as ReadinessInput & {
+    cuit?: string | null;
+  };
+  const duplicateResult = detectDuplicateSignals(
+    {
+      id: plan.leadCaseId,
+      companyName: plan.profile.companyName ?? null,
+      contactEmail: plan.profile.contactEmail ?? null,
+      telegramUserId: (current?.telegram_user_id as number | null) ?? null,
+      cuit: profileRecord.cuit ?? (current?.cuit as string | null) ?? null
+    },
+    ((existingCases ?? []) as Array<{
+      id: string;
+      company_name: string | null;
+      contact_email: string | null;
+      telegram_user_id: number | null;
+      cuit: string | null;
+    }>).map((leadCase) => ({
+      id: leadCase.id,
+      companyName: leadCase.company_name,
+      contactEmail: leadCase.contact_email,
+      telegramUserId: leadCase.telegram_user_id,
+      cuit: leadCase.cuit
+    }))
+  );
+
+  return {
+    possible_duplicate: duplicateResult.possibleDuplicate,
+    duplicate_signals: duplicateResult.signals
+  };
 }
 
 async function persistHandoffPlan({
@@ -107,9 +172,14 @@ async function persistHandoffPlan({
   supabase: ReturnType<typeof createServiceSupabaseClient>;
   plan: HandoffPlan;
 }) {
+  const duplicatePatch = await duplicatePatchForPlan({ supabase, plan });
+
   await supabase
     .from("lead_cases")
-    .update(leadCaseUpdateFromHandoffPlan(plan))
+    .update({
+      ...leadCaseUpdateFromHandoffPlan(plan),
+      ...duplicatePatch
+    })
     .eq("id", plan.leadCaseId);
 
   if (plan.status !== "ready_for_anden" || !plan.dossier || !plan.notification) {
@@ -153,7 +223,10 @@ async function persistHandoffPlan({
       user_summary: plan.dossier.record.userSummary,
       anden_dossier: plan.dossier.record.andenDossier,
       generated_from_profile_id: profileId,
-      generated_at: plan.dossier.record.generatedAt
+      generated_at: plan.dossier.record.generatedAt,
+      retention_delete_after: computeRetentionDeleteAfter(
+        plan.dossier.record.generatedAt
+      )
     });
 
     if (dossierError) throw dossierError;
@@ -234,13 +307,16 @@ export async function POST(request: NextRequest) {
   let intakeSessionId = sessionRow?.id as string | undefined;
 
   if (!leadCaseId || !intakeSessionId || message.text?.trim() === "/start") {
+    const now = new Date().toISOString();
     const { data: leadCase, error: leadCaseError } = await supabase
       .from("lead_cases")
       .insert({
         lifecycle_state: "intake_started",
         telegram_user_id: message.from?.id ?? null,
         telegram_username: message.from?.username ?? null,
-        last_activity_at: new Date().toISOString()
+        last_activity_at: now,
+        expires_at: computeIntakeExpiresAt(now),
+        retention_delete_after: computeRetentionDeleteAfter(now)
       })
       .select("id")
       .single();

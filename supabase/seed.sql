@@ -62,7 +62,10 @@ insert into public.lead_cases (
   processing_consent,
   contact_consent,
   last_activity_at,
-  expires_at
+  expires_at,
+  retention_delete_after,
+  completed_at,
+  dossier_generated_at
 )
 values (
   '33333333-3333-3333-3333-333333333333',
@@ -81,7 +84,10 @@ values (
   true,
   true,
   now(),
-  now() + interval '180 days'
+  null,
+  now() + interval '180 days',
+  now(),
+  now()
 )
 on conflict (id) do update
 set lifecycle_state = excluded.lifecycle_state,
@@ -97,7 +103,10 @@ set lifecycle_state = excluded.lifecycle_state,
     processing_consent = excluded.processing_consent,
     contact_consent = excluded.contact_consent,
     last_activity_at = excluded.last_activity_at,
-    expires_at = excluded.expires_at;
+    expires_at = excluded.expires_at,
+    retention_delete_after = excluded.retention_delete_after,
+    completed_at = excluded.completed_at,
+    dossier_generated_at = excluded.dossier_generated_at;
 
 insert into public.company_profiles (
   id,
@@ -130,7 +139,8 @@ insert into public.dossiers (
   user_summary,
   anden_dossier,
   generated_from_profile_id,
-  generated_at
+  generated_at,
+  retention_delete_after
 )
 values (
   '55555555-5555-5555-5555-555555555555',
@@ -152,6 +162,7 @@ values (
     "missing_data":["Detalle de contratos principales","Resumen de cobros"]
   }'::jsonb,
   '44444444-4444-4444-4444-444444444444',
-  now()
+  now(),
+  now() + interval '180 days'
 )
 on conflict (id) do nothing;
