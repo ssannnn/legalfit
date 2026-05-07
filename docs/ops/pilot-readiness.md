@@ -63,6 +63,117 @@ Current implementation references:
 
 Run these tests in the production-like environment with production Supabase, Telegram webhook and notification secrets configured.
 
+## Test Levels
+
+Use these levels to separate local/semi-real validation from the final HITL pilot gate.
+
+### Level 1: Automated Local Verification
+
+Purpose: verify deterministic product logic without external services.
+
+Required commands:
+
+```bash
+npm test
+npm run typecheck
+npm run build
+```
+
+Coverage:
+
+- routing and fit classification
+- consent boundaries
+- dossier generation
+- voice job planning
+- retention/duplicate logic
+- Lead Inbox data mapping
+
+This level does not validate real Supabase RLS, Telegram delivery, email delivery or deployed URLs.
+
+### Level 2: Semi-Real Supabase + Curl Webhook
+
+Purpose: validate the app against a real Supabase dev project while simulating Telegram with `curl`.
+
+Required configuration:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `NEXT_PUBLIC_SITE_URL=http://localhost:3000`
+- all migrations applied, including explicit API grants
+- `supabase/seed.sql` applied
+- real operator email inserted into `anden_operators`
+- Supabase Auth local redirect configured for `http://localhost:3000/auth/callback`
+
+Not required for Level 2:
+
+- `TELEGRAM_BOT_TOKEN`
+- `LEGALFIT_NOTIFICATION_WEBHOOK_URL`
+- `LEGALFIT_TRANSCRIPTION_WEBHOOK_URL`
+- public HTTPS tunnel
+- real email notification delivery
+- real voice transcription provider
+
+Level 2 completed in the current dev project:
+
+- [x] Magic-link login reaches `/lead-inbox` for allowlisted operator.
+- [x] Active operator can read Lead Inbox data after explicit grants.
+- [x] Telegram text happy path via `curl` reaches final handoff consent and creates a lead.
+- [x] No-handoff negative path via `chat.id=556` ends as `closed_no_handoff`.
+- [x] No-handoff case does not become `ready_for_anden`.
+- [x] Missing API grants were fixed in migration `20260507215000_grant_api_table_privileges.sql`.
+- [x] Contact-name extraction issue observed and tracked in issue #13.
+
+Level 2 still to run:
+
+- [ ] Replay an existing `update_id`/`message_id` and confirm `{ "duplicate": true }`.
+- [ ] Query the consented happy-path lead and confirm `lifecycle_state = 'ready_for_anden'`.
+- [ ] Confirm happy-path `company_profiles` row exists.
+- [ ] Confirm happy-path `dossiers.rulebook_version = 'zf_services_ar_v0.1.0'`.
+- [ ] Confirm happy-path notification job exists with idempotency key.
+- [ ] Confirm the consented lead appears in `/lead-inbox`.
+- [ ] Confirm the `closed_no_handoff` lead does not appear in `/lead-inbox`.
+- [ ] Run goods-only out-of-scope curl case.
+- [ ] Run direct legal/fiscal/accounting advice out-of-scope curl case.
+- [ ] Run no-company/no-commercial-operation out-of-scope curl case.
+- [ ] Run non-Argentina company out-of-scope curl case.
+- [ ] Run semi-real voice queue smoke test by posting a `voice.file_id` payload and confirming `jobs.job_type = 'transcription'`.
+
+### Level 3: Real Integration / Pilot-Ready
+
+Purpose: validate the actual pilot path with real external integrations and Anden HITL approval.
+
+Required configuration:
+
+- production-like Supabase project with all migrations and seed data
+- production-like Supabase Auth URL configuration
+- server-side `SUPABASE_SERVICE_ROLE_KEY`
+- deployed app URL or public tunnel
+- `TELEGRAM_BOT_TOKEN`
+- Telegram webhook configured to `/api/telegram/webhook`
+- `LEGALFIT_NOTIFICATION_WEBHOOK_URL`
+- notification recipient configured or confirmed by the webhook provider
+- `LEGALFIT_TRANSCRIPTION_WEBHOOK_URL` or approved transcription integration
+- job runner/cron/manual invocation for `/api/jobs/transcription` and `/api/jobs/retention`
+- optional `LEGALFIT_JOB_SECRET` with matching `Authorization: Bearer ...` for job routes
+
+Level 3 still to run:
+
+- [ ] Anden approves rulebook `zf_services_ar_v0.1.0`.
+- [ ] Anden approves disclaimer, consent and user-safe copy.
+- [ ] Authenticated allowlisted operator can access Lead Inbox in the target environment.
+- [ ] Authenticated non-allowlisted user is denied.
+- [ ] Real Telegram text intake completes end-to-end.
+- [ ] Real Telegram voice intake completes end-to-end with transcript stored.
+- [ ] Successful voice transcription clears original audio retention.
+- [ ] Exhausted voice transcription failure sends safe retry/continue-with-text message.
+- [ ] Email/webhook notification is received and includes Lead Inbox detail link.
+- [ ] Replayed Telegram update/message does not create duplicate dossier or notification.
+- [ ] No document upload path is visible or accepted.
+- [ ] Lead Inbox operator can list, filter, open detail, assign, change commercial state and add notes.
+- [ ] Every dossier from the first 10-20 real leads is reviewed by Anden.
+- [ ] `high_priority_case` is treated as queue priority only, with human review required.
+
 ### RLS
 
 1. Log in as an active email in `anden_operators`.
@@ -175,4 +286,3 @@ Use this table in issue #12 comments while executing the pilot readiness check.
 | Date | Gate | Environment | Evidence | Result | Reviewer |
 | --- | --- | --- | --- | --- | --- |
 | TBD | TBD | TBD | TBD | pending | TBD |
-
