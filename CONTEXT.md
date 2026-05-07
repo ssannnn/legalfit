@@ -79,6 +79,7 @@ Out of scope:
 - Next action: primary routing recommendation for Anden.
 - Fit status: explanatory quality assessment, not legal eligibility.
 - Actionable lead: a ready-for-Anden lead with consent, critical data, valid contact and actionable `next_action`.
+- Controlled pilot: first 10-20 real leads processed only after Anden approves rulebook/copy, with human review of every generated dossier before follow-up.
 
 ## Routing Values
 
