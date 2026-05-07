@@ -154,9 +154,4 @@ values (
   '44444444-4444-4444-4444-444444444444',
   now()
 )
-on conflict (id) do update
-set rulebook_version = excluded.rulebook_version,
-    user_summary = excluded.user_summary,
-    anden_dossier = excluded.anden_dossier,
-    generated_from_profile_id = excluded.generated_from_profile_id,
-    generated_at = excluded.generated_at;
+on conflict (id) do nothing;
