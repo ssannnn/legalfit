@@ -320,6 +320,8 @@ Preclassification is based on a manually curated and versioned rulebook, validat
 
 The rulebook is derived from official sources and specialist interpretation. The system does not auto-update rules from the internet and the LLM does not reinterpret sources periodically.
 
+Rulebook validation owner for MVP is Anden legal/ops. The initial shell can be implemented with standard user-safe copy, but final disclaimer, consent and user-safe copy remain subject to deeper Anden review before production use.
+
 Initial source pack should include:
 
 - Ley 24.331 de Zonas Francas, texto actualizado.
@@ -328,6 +330,12 @@ Initial source pack should include:
 - Official MiPyME guidance for certificate signal.
 - Official Economia del Conocimiento guidance for signal only.
 - Any specific rules or public operating requirements for the zona franca context Anden wants to prioritize.
+
+The Anden team may incorporate additional internal guidance, operator-specific documentation or zona-franca-specific sources in future rulebook versions.
+
+Initial commercial threshold confirmed for the shell: `high_priority_case` may be signaled when a current services/software exporter declares `USD 250k+` in the last 12 months, urgency and main documentation availability. This is a commercial priority signal, not an eligibility conclusion.
+
+Initial specialist-review signals include multiple jurisdictions, collection or billing complexity, services/goods mix, inconsistencies between answers and any declared risk signal that requires professional review before commercial advancement.
 
 Each rule should include:
 

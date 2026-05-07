@@ -22,8 +22,22 @@ values (
   'zf_services_ar_v0.1.0',
   'zonas_francas_services_ar',
   'draft',
-  '{"sources":["Ley 24.331","Codigo Aduanero Ley 22.415","ARCA exportacion de servicios"]}'::jsonb,
-  'Demo rulebook shell pending Anden validation.'
+  '{
+    "validation_owner":"Anden legal/ops",
+    "validation_status":"pending_final_copy_review",
+    "sources":[
+      "Ley 24.331 de Zonas Francas",
+      "Codigo Aduanero Ley 22.415",
+      "ARCA exportacion de servicios",
+      "Certificado MiPyME",
+      "Economia del Conocimiento"
+    ],
+    "future_anden_sources_note":"El equipo de Anden puede incorporar fuentes, guias internas o documentacion especifica de zona franca en futuras versiones del rulebook.",
+    "commercial_thresholds":{
+      "high_priority_case":"USD 250k+ ultimos 12 meses + urgencia + documentacion principal declarada"
+    }
+  }'::jsonb,
+  'Rulebook shell confirmed for implementation by Anden legal/ops. Final user-safe copy remains pending deeper review.'
 )
 on conflict (version) do update
 set module = excluded.module,
