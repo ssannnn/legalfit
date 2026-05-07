@@ -1,7 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { createHandoffPlan, type HandoffPlan } from "../../../../lib/handoff/handoff";
+import { sendNewLeadNotification } from "../../../../lib/notifications/email";
+import type { ReadinessInput } from "../../../../lib/routing/readiness";
 import { handleTextIntake, type IntakeSessionSnapshot } from "../../../../lib/telegram/intake";
-import { createServerSupabaseClient } from "../../../../lib/supabase/server";
+import { createServiceSupabaseClient } from "../../../../lib/supabase/server";
 
 type TelegramUpdate = {
   update_id: number;
@@ -70,6 +73,119 @@ function leadCaseUpdateFromResult(
   return update;
 }
 
+function leadCaseUpdateFromHandoffPlan(plan: HandoffPlan) {
+  return {
+    lifecycle_state: plan.leadCasePatch.lifecycleState,
+    commercial_state: plan.leadCasePatch.commercialState,
+    next_action: plan.leadCasePatch.nextAction,
+    overall_fit: plan.leadCasePatch.overallFit,
+    exporter_classification: plan.leadCasePatch.exporterClassification,
+    export_type: plan.leadCasePatch.exportType,
+    company_name: plan.leadCasePatch.companyName,
+    contact_name: plan.leadCasePatch.contactName,
+    contact_email: plan.leadCasePatch.contactEmail,
+    handoff_consent: plan.leadCasePatch.handoffConsent,
+    contact_consent: plan.leadCasePatch.contactConsent,
+    last_activity_at: new Date().toISOString()
+  };
+}
+
+async function persistHandoffPlan({
+  supabase,
+  plan
+}: {
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  plan: HandoffPlan;
+}) {
+  await supabase
+    .from("lead_cases")
+    .update(leadCaseUpdateFromHandoffPlan(plan))
+    .eq("id", plan.leadCaseId);
+
+  if (plan.status !== "ready_for_anden" || !plan.dossier || !plan.notification) {
+    return;
+  }
+
+  const { data: existingProfile } = await supabase
+    .from("company_profiles")
+    .select("id")
+    .eq("lead_case_id", plan.leadCaseId)
+    .maybeSingle();
+
+  let profileId = existingProfile?.id as string | undefined;
+
+  if (!profileId) {
+    const { data: profile, error: profileError } = await supabase
+      .from("company_profiles")
+      .insert({
+        lead_case_id: plan.leadCaseId,
+        profile_data: plan.profile,
+        confirmed_at: plan.dossier.record.generatedAt
+      })
+      .select("id")
+      .single();
+
+    if (profileError) throw profileError;
+    profileId = profile.id as string;
+  }
+
+  const { data: existingDossier } = await supabase
+    .from("dossiers")
+    .select("id")
+    .eq("lead_case_id", plan.leadCaseId)
+    .eq("rulebook_version", plan.dossier.record.rulebookVersion)
+    .maybeSingle();
+
+  if (!existingDossier) {
+    const { error: dossierError } = await supabase.from("dossiers").insert({
+      lead_case_id: plan.leadCaseId,
+      rulebook_version: plan.dossier.record.rulebookVersion,
+      user_summary: plan.dossier.record.userSummary,
+      anden_dossier: plan.dossier.record.andenDossier,
+      generated_from_profile_id: profileId,
+      generated_at: plan.dossier.record.generatedAt
+    });
+
+    if (dossierError) throw dossierError;
+  }
+
+  const { data: existingNotificationJob } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("idempotency_key", plan.idempotencyKeys.notification)
+    .maybeSingle();
+
+  if (existingNotificationJob) return;
+
+  const { data: notificationJob, error: notificationJobError } = await supabase
+    .from("jobs")
+    .insert({
+      job_type: "notification",
+      status: "processing",
+      payload: plan.notification,
+      idempotency_key: plan.idempotencyKeys.notification
+    })
+    .select("id")
+    .single();
+
+  if (notificationJobError) throw notificationJobError;
+
+  const sendResult = await sendNewLeadNotification({
+    payload: plan.notification
+  });
+
+  await supabase
+    .from("jobs")
+    .update({
+      status: sendResult.status === "sent" ? "succeeded" : "queued",
+      payload: {
+        ...plan.notification,
+        sendResult
+      }
+    })
+    .eq("id", notificationJob.id);
+}
+
 export async function POST(request: NextRequest) {
   const update = (await request.json()) as TelegramUpdate;
   const message = update.message;
@@ -78,7 +194,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "non_text" });
   }
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = createServiceSupabaseClient();
   const { data: existingByUpdate } = await supabase
     .from("intake_messages")
     .select("id")
@@ -176,6 +292,16 @@ export async function POST(request: NextRequest) {
     .from("lead_cases")
     .update(leadCaseUpdateFromResult(result))
     .eq("id", leadCaseId);
+
+  if (result.sessionPatch.state === "confirmed_profile") {
+    const plan = createHandoffPlan({
+      leadCaseId,
+      profile: result.sessionPatch.extractedFields as ReadinessInput,
+      siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? new URL(request.url).origin
+    });
+
+    await persistHandoffPlan({ supabase, plan });
+  }
 
   if (result.replies.length > 0) {
     await supabase.from("intake_messages").insert(

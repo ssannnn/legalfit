@@ -7,6 +7,10 @@ const schemaMigrationPath = join(
   process.cwd(),
   "supabase/migrations/20260507193000_create_lead_case_schema.sql"
 );
+const handoffMigrationPath = join(
+  process.cwd(),
+  "supabase/migrations/20260507210000_add_handoff_idempotency.sql"
+);
 
 describe("lead case schema migration", () => {
   const sql = readFileSync(schemaMigrationPath, "utf8");
@@ -51,5 +55,16 @@ describe("lead case schema migration", () => {
   it("constrains lifecycle and commercial state separately", () => {
     expect(sql).toContain("lead_cases_lifecycle_state_check");
     expect(sql).toContain("lead_cases_commercial_state_check");
+  });
+});
+
+describe("handoff idempotency migration", () => {
+  const sql = readFileSync(handoffMigrationPath, "utf8");
+
+  it("adds unique handoff and notification idempotency guards", () => {
+    expect(sql).toContain("company_profiles_lead_case_unique_idx");
+    expect(sql).toContain("dossiers_lead_case_rulebook_unique_idx");
+    expect(sql).toContain("idempotency_key");
+    expect(sql).toContain("jobs_idempotency_key_idx");
   });
 });
