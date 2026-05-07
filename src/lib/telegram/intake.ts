@@ -545,6 +545,35 @@ export function handleTextIntake({
     };
   }
 
+  if (session.state === "awaiting_minimal_capture_consent") {
+    const extractedFields = {
+      ...session.extractedFields,
+      minimalCaptureConsent: accepted(text)
+    };
+
+    return {
+      replies: [
+        accepted(text)
+          ? "Tome una descripcion minima. No se va a crear un lead activo porque el MVP actual no cubre bienes."
+          : "Entendido. No voy a registrar seguimiento para este caso fuera del alcance actual."
+      ],
+      sessionPatch: {
+        state: "out_of_scope",
+        currentStep: accepted(text)
+          ? "minimal_capture_recorded"
+          : "minimal_capture_refused",
+        extractedFields
+      },
+      missingCriticalFields: [],
+      leadCasePatch: {
+        ...leadPatchFromFields(extractedFields),
+        lifecycleState: "out_of_scope",
+        nextAction: "out_of_scope",
+        overallFit: "low"
+      }
+    };
+  }
+
   if (session.state === "collecting_case_description") {
     const extractedFields = mergeFields(
       session.extractedFields,

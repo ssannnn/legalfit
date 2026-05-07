@@ -36,6 +36,20 @@ type LeadCaseRow = {
 
 type JsonRecord = Record<string, unknown>;
 
+export function isActiveLeadInboxItem({
+  lifecycleState,
+  nextAction
+}: {
+  lifecycleState: string;
+  nextAction: string | null;
+}) {
+  return (
+    lifecycleState === "ready_for_anden" &&
+    nextAction !== "request_missing_info" &&
+    nextAction !== "out_of_scope"
+  );
+}
+
 export function mapLeadCaseRow(row: LeadCaseRow): LeadInboxItem {
   return {
     id: row.id,
@@ -76,9 +90,9 @@ export async function listLeadInboxItems(supabase: SupabaseClient) {
     throw error;
   }
 
-  return ((data ?? []) as unknown as LeadCaseRow[]).map((row) =>
-    mapLeadCaseRow(row)
-  );
+  return ((data ?? []) as unknown as LeadCaseRow[])
+    .map((row) => mapLeadCaseRow(row))
+    .filter((lead) => isActiveLeadInboxItem(lead));
 }
 
 export async function getLeadCaseDetail(
