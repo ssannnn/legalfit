@@ -11,6 +11,10 @@ const handoffMigrationPath = join(
   process.cwd(),
   "supabase/migrations/20260507210000_add_handoff_idempotency.sql"
 );
+const voiceMigrationPath = join(
+  process.cwd(),
+  "supabase/migrations/20260507212000_add_voice_transcription_fields.sql"
+);
 
 describe("lead case schema migration", () => {
   const sql = readFileSync(schemaMigrationPath, "utf8");
@@ -66,5 +70,16 @@ describe("handoff idempotency migration", () => {
     expect(sql).toContain("dossiers_lead_case_rulebook_unique_idx");
     expect(sql).toContain("idempotency_key");
     expect(sql).toContain("jobs_idempotency_key_idx");
+  });
+});
+
+describe("voice transcription migration", () => {
+  const sql = readFileSync(voiceMigrationPath, "utf8");
+
+  it("tracks voice transcription state without retaining audio after success", () => {
+    expect(sql).toContain("telegram_file_id");
+    expect(sql).toContain("transcription_status");
+    expect(sql).toContain("original_audio_retained");
+    expect(sql).toContain("audio_retained_until");
   });
 });

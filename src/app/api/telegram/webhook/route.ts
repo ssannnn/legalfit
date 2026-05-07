@@ -4,6 +4,10 @@ import { createHandoffPlan, type HandoffPlan } from "../../../../lib/handoff/han
 import { sendNewLeadNotification } from "../../../../lib/notifications/email";
 import type { ReadinessInput } from "../../../../lib/routing/readiness";
 import { handleTextIntake, type IntakeSessionSnapshot } from "../../../../lib/telegram/intake";
+import {
+  canAcceptVoiceInput,
+  createVoiceTranscriptionPlan
+} from "../../../../lib/telegram/voice";
 import { createServiceSupabaseClient } from "../../../../lib/supabase/server";
 
 type TelegramUpdate = {
@@ -13,6 +17,12 @@ type TelegramUpdate = {
     chat: { id: number };
     from?: { id: number; username?: string };
     text?: string;
+    voice?: {
+      file_id: string;
+      file_unique_id?: string;
+      duration?: number;
+      mime_type?: string;
+    };
   };
 };
 
@@ -190,8 +200,8 @@ export async function POST(request: NextRequest) {
   const update = (await request.json()) as TelegramUpdate;
   const message = update.message;
 
-  if (!message?.text) {
-    return NextResponse.json({ ok: true, skipped: "non_text" });
+  if (!message?.text && !message?.voice) {
+    return NextResponse.json({ ok: true, skipped: "unsupported_message" });
   }
 
   const supabase = createServiceSupabaseClient();
@@ -223,7 +233,7 @@ export async function POST(request: NextRequest) {
   let leadCaseId = sessionRow?.lead_case_id as string | undefined;
   let intakeSessionId = sessionRow?.id as string | undefined;
 
-  if (!leadCaseId || !intakeSessionId || message.text.trim() === "/start") {
+  if (!leadCaseId || !intakeSessionId || message.text?.trim() === "/start") {
     const { data: leadCase, error: leadCaseError } = await supabase
       .from("lead_cases")
       .insert({
@@ -263,7 +273,83 @@ export async function POST(request: NextRequest) {
           (sessionRow.extracted_fields as IntakeSessionSnapshot["extractedFields"]) ?? {}
       }
     : null;
-  const result = handleTextIntake({ session: snapshot, text: message.text });
+  if (message.voice) {
+    const voiceSession =
+      snapshot ??
+      ({
+        state: "intake_started",
+        currentStep: "start",
+        extractedFields: {}
+      } satisfies IntakeSessionSnapshot);
+    const reply = canAcceptVoiceInput(voiceSession)
+      ? "Recibi el audio. Lo voy a transcribir y usar como respuesta de este paso."
+      : "Por ahora necesito texto en este paso. Inicia con /start o responde el consentimiento por texto.";
+
+    if (canAcceptVoiceInput(voiceSession)) {
+      const voicePlan = createVoiceTranscriptionPlan({
+        leadCaseId,
+        intakeSessionId,
+        telegramChatId: message.chat.id,
+        telegramMessageId: message.message_id,
+        telegramFileId: message.voice.file_id
+      });
+
+      const { data: voiceMessage, error: voiceMessageError } = await supabase
+        .from("intake_messages")
+        .insert({
+          ...voicePlan.message,
+          telegram_update_id: update.update_id,
+          metadata: {
+            ...voicePlan.message.metadata,
+            duration: message.voice.duration,
+            mime_type: message.voice.mime_type,
+            file_unique_id: message.voice.file_unique_id
+          }
+        })
+        .select("id")
+        .single();
+
+      if (voiceMessageError) throw voiceMessageError;
+
+      const { data: existingTranscriptionJob } = await supabase
+        .from("jobs")
+        .select("id")
+        .eq("idempotency_key", voicePlan.job.idempotency_key)
+        .maybeSingle();
+
+      if (!existingTranscriptionJob) {
+        await supabase.from("jobs").insert({
+          ...voicePlan.job,
+          payload: {
+            ...voicePlan.job.payload,
+            intakeMessageId: voiceMessage.id,
+            sessionSnapshot: voiceSession
+          }
+        });
+      }
+
+      await supabase
+        .from("intake_sessions")
+        .update({ last_user_message_at: new Date().toISOString() })
+        .eq("id", intakeSessionId);
+    }
+
+    await supabase.from("intake_messages").insert({
+      intake_session_id: intakeSessionId,
+      lead_case_id: leadCaseId,
+      telegram_chat_id: message.chat.id,
+      direction: "outbound",
+      message_type: "text",
+      text: reply,
+      metadata: { telegram_chat_id: message.chat.id }
+    });
+
+    await sendTelegramMessage(message.chat.id, reply);
+
+    return NextResponse.json({ ok: true, queued: canAcceptVoiceInput(voiceSession) });
+  }
+
+  const result = handleTextIntake({ session: snapshot, text: message.text ?? "" });
 
   await supabase.from("intake_messages").insert({
     intake_session_id: intakeSessionId,
