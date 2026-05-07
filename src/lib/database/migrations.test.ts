@@ -19,6 +19,10 @@ const retentionMigrationPath = join(
   process.cwd(),
   "supabase/migrations/20260507214000_add_retention_duplicate_metrics.sql"
 );
+const grantsMigrationPath = join(
+  process.cwd(),
+  "supabase/migrations/20260507215000_grant_api_table_privileges.sql"
+);
 
 describe("lead case schema migration", () => {
   const sql = readFileSync(schemaMigrationPath, "utf8");
@@ -99,5 +103,17 @@ describe("retention and duplicate migration", () => {
     expect(sql).toContain("lead_cases_duplicate_telegram_user_idx");
     expect(sql).toContain("lead_cases_duplicate_cuit_idx");
     expect(sql).toContain("lead_cases_duplicate_company_idx");
+  });
+});
+
+describe("API table privileges migration", () => {
+  const sql = readFileSync(grantsMigrationPath, "utf8");
+
+  it("grants explicit table privileges when new tables are not auto-exposed", () => {
+    expect(sql).toContain("grant usage on schema public");
+    expect(sql).toContain("to authenticated");
+    expect(sql).toContain("to service_role");
+    expect(sql).toContain("public.lead_cases");
+    expect(sql).toContain("public.anden_operators");
   });
 });
